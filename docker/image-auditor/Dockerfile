@@ -10,6 +10,6 @@ RUN mvn clean install
 FROM eclipse-temurin:21-jammy
 
 WORKDIR /app
-COPY --from=build /app/target/*-SNAPSHOT.jar /app/app.jar
+COPY --from=build /app/target/*-SNAPSHOT-jar-with-dependencies.jar /app/app.jar
 
-ENTRYPOINT java -jar /app/app.jar
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
