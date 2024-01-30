@@ -11,7 +11,9 @@ import java.util.HashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -38,15 +40,19 @@ public class Main {
      */
     public static void main(String[] args) {
         System.out.println("Starting auditor");
-        try (final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        final var executor = Executors.newVirtualThreadPerTaskExecutor();
+        final var scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
+        // Using a try-with-resources block would shut down the scheduledExecutor because it doesn't run a while loop.
+        // See https://stackoverflow.com/q/52843618/ for more information.
+        try {
             executor.execute(new RunnableListener());
             executor.execute(new RunnableServer());
-            executor.execute(new RunnableWatcher());
-
-            // Wait for all threads to finish.
-            executor.shutdown();
+            scheduledExecutor.scheduleAtFixedRate(new RunnableWatcher(), 0, RunnableWatcher.THREAD_TIMEOUT, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
             System.err.println(e.getMessage());
+        } finally {
+            executor.close();
+            scheduledExecutor.close();
         }
     }
 
@@ -185,11 +191,10 @@ public class Main {
      * A thread that removes inactive musicians from the list.
      */
     private static class RunnableWatcher implements Runnable {
-
         /**
          * The time between each check of the list.
          */
-        private static final long THREAD_TIMEOUT = 1000; // 1 seconds
+        public static final long THREAD_TIMEOUT = 1000; // 1 seconds
 
         /**
          * The maximum time a musician can be inactive before being removed from the list.
@@ -197,15 +202,20 @@ public class Main {
         private static final long INACTIVE_TIMEOUT = 5000; // 5 seconds
 
         /**
-         * Remove inactive musicians from the list.
+         * Create a new watcher, used to log when the thread first starts.
+         */
+        private RunnableWatcher() {
+            System.out.println("Starting auditor watcher");
+        }
+
+        /**
+         * Remove inactive musicians from the list. Note: this could've been a lambda expression, but it's cleaner to
+         * factor it out into a separate class.
          */
         @Override
         public void run() {
-            System.out.println("Starting inactive musician watcher");
-            try (final ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor()) {
-                executorService.scheduleAtFixedRate(() -> {
-                    musicians.removeIf(m -> System.currentTimeMillis() - m.lastActivity() > INACTIVE_TIMEOUT);
-                }, 0, THREAD_TIMEOUT, TimeUnit.MILLISECONDS);
+            if (musicians.removeIf(m -> System.currentTimeMillis() - m.lastActivity() >= INACTIVE_TIMEOUT)) {
+                System.out.println("Auditor watcher: removed inactive musicians");
             }
         }
     }
